@@ -1,0 +1,77 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+*.pickle
+*.log
+*.tmp
+
+# --- Virtual environments ---
+venv/
+.env/
+.env*/
+.venv/
+
+# --- Build / packaging ---
+build/
+dist/
+*.egg-info/
+*.egg
+
+# --- Cache ---
+.cache/
+*.cache
+.cache/*
+pip-wheel-metadata/
+*.whl
+
+# --- IDE ---
+# VSCode
+.vscode/
+# PyCharm / JetBrains
+.idea/
+*.iml
+
+# --- OS / WSL ---
+# Windows junk
+Thumbs.db
+Desktop.ini
+# WSL interop
+wsl*
+*.lnk
+
+# --- Qt / PyQt ---
+*.qss~
+*.qmlc
+*.jsc
+*.pro.user
+*.pro.user.*
+*.qmake.stash
+
+# --- Logs ---
+logs/
+*.log
+log.txt
+
+# --- Models / AI ---
+models/
+checkpoints/
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# --- App specific ---
+# Generated code output
+generated/
+output/
+results/
+
+# --- Temporary files ---
+tmp/
+temp/
+*.bak
+*.old
