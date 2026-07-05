@@ -1,0 +1,30 @@
+{
+    "architecture": "MVP",
+    "modules": [
+        {
+            "name": "main",
+            "description": "главный модуль, точка входа",
+            "depends_on": [
+                "vector",
+                "geometry"
+            ]
+        },
+        {
+            "name": "vector",
+            "description": "класс Vector",
+            "depends_on": []
+        },
+        {
+            "name": "geometry",
+            "description": "класс Geometry",
+            "depends_on": [
+                "vector"
+            ]
+        },
+        {
+            "name": "utils",
+            "description": "модуль для utils",
+            "depends_on": []
+        }
+    ]
+}

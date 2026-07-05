@@ -11,6 +11,5 @@ class CodeAgent:
             docker=DockerRunner()
         )
 
-    def run(self, tech_task: str):
-        code, log = self.pipeline.run(tech_task)
-        return {"code": code, "log": log}
+    def run(self, tech_task: str, callback=None):
+        return self.pipeline.run(tech_task, callback)
