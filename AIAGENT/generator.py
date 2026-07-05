@@ -3,7 +3,6 @@ import requests
 from . import config
 
 def clean_code(raw: str) -> str:
-    """Extracts code from model response, removes Markdown markers."""
     if not raw:
         return ""
     if raw.startswith('\ufeff'):
@@ -35,7 +34,6 @@ def clean_code(raw: str) -> str:
     return '\n'.join(cleaned).strip()
 
 def generate_code(prompt: str):
-    """Sends request to Ollama and returns generated code."""
     payload = {
         "model": config.MODEL_NAME,
         "prompt": prompt,
@@ -57,3 +55,7 @@ def generate_code(prompt: str):
     except Exception as e:
         print(f"Ollama error: {e}")
         return None
+
+class CodeGenerator:
+    def generate_code(self, prompt: str):
+        return generate_code(prompt)

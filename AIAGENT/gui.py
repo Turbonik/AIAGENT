@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
-from .agent import CodeAgent
+from .code_agent import CodeAgent
 
 class Worker(QThread):
     finished = pyqtSignal(str, str)
