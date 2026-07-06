@@ -11,10 +11,11 @@ __pycache__/
 
 # --- Virtual environments ---
 venv/
+venv_win/
 .env/
 .env*/
 .venv/
-
+.venv_win/
 # --- Build / packaging ---
 build/
 dist/

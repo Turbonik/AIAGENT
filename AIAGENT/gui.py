@@ -13,6 +13,27 @@ from PyQt5.QtGui import QFont, QPalette, QColor, QDragEnterEvent, QDropEvent, QI
 from .code_agent import CodeAgent
 from .file_handler import extract_text_from_file, validate_file, merge_texts
 
+ 
+import traceback
+from pathlib import Path
+
+def get_log_dir():
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    else:
+        return Path(__file__).parent
+
+def log_to_file(msg):
+    log_file = get_log_dir() / "app.log"
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(msg + "\n")
+
+def get_base_dir():
+    """Возвращает папку, где находится исполняемый файл (или скрипт)."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    else:
+        return Path(__file__).parent
 
 class Worker(QThread):
     finished = pyqtSignal(dict, str)
@@ -23,13 +44,18 @@ class Worker(QThread):
         self.tech_task = tech_task
 
     def run(self):
-        agent = CodeAgent()
-
-        def callback(msg: str):
-            self.progress_update.emit(msg)
-
-        result = agent.run(self.tech_task, callback)
-        self.finished.emit(result, result["log"])
+        try:
+            log_to_file("Worker started")
+            agent = CodeAgent()
+            def callback(msg: str):
+                self.progress_update.emit(msg)
+                log_to_file(f"CB: {msg}")
+            result = agent.run(self.tech_task, callback)
+            log_to_file("Worker finished successfully")
+            self.finished.emit(result, result["log"])
+        except Exception as e:
+            log_to_file("Worker CRASH: " + traceback.format_exc())
+            self.finished.emit({"success": False}, f"Ошибка:\n{traceback.format_exc()}")
 
 
 class MainWindow(QMainWindow):
@@ -40,9 +66,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ИИ‑агент: Генерация кода по ТЗ")
         self.setMinimumSize(1400, 900)
 
-        self.attached_files = []  # Список путей к загруженным файлам
-
-        # Разрешаем drag-drop на главном окне
+        self.attached_files = [] 
         self.setAcceptDrops(True)
 
         central = QWidget()
@@ -55,11 +79,10 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignCenter)
         title.setFont(QFont("Arial", 20, QFont.Bold))
         main_layout.addWidget(title)
-
-        # Панель загрузки файлов
+ 
         files_panel_layout = QHBoxLayout()
 
-        attach_btn = QPushButton("📎 Прикрепить файл (PDF/DOCX/TXT)")
+        attach_btn = QPushButton("Прикрепить файл (PDF/DOCX/TXT)")
         attach_btn.setFont(QFont("Arial", 11, QFont.Bold))
         attach_btn.clicked.connect(self.on_attach_file)
         files_panel_layout.addWidget(attach_btn)
@@ -70,22 +93,19 @@ class MainWindow(QMainWindow):
         files_panel_layout.addStretch()
 
         main_layout.addLayout(files_panel_layout)
-
-        # Список загруженных файлов (с возможностью удаления)
+ 
         self.files_list = QListWidget()
         self.files_list.setMaximumHeight(90)
         self.files_list.setFont(QFont("Courier New", 11))
         self.files_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.files_list.customContextMenuRequested.connect(self._show_file_context_menu)
         main_layout.addWidget(self.files_list)
-
-        # Основной разделитель: ТЗ (слева) и Логи (справа)
+ 
         splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(splitter)
-
-        # Левая часть: ТЗ (с drag-drop)
+ 
         self.left_container = QWidget()
-        self.left_container.setAcceptDrops(True)  # Принимаем сброс файлов
+        self.left_container.setAcceptDrops(True)  
         left = QVBoxLayout(self.left_container)
         left.setContentsMargins(12, 12, 12, 12)
 
@@ -96,13 +116,12 @@ class MainWindow(QMainWindow):
         self.input_text = QTextEdit()
         self.input_text.setFont(QFont("Courier New", 12))
         self.input_text.setMinimumHeight(250)
-        self.input_text.setAcceptDrops(True)  # Можно кидать файлы прямо в поле ввода
+        self.input_text.setAcceptDrops(True)   
         left.addWidget(self.input_text)
 
         splitter.addWidget(self.left_container)
-        splitter.setSizes([2, 1])  # Соотношение левой и правой части (2:1)
-
-        # Правая часть: логи
+        splitter.setSizes([2, 1]) 
+ 
         right_container = QWidget()
         right = QVBoxLayout(right_container)
 
@@ -116,8 +135,7 @@ class MainWindow(QMainWindow):
         right.addWidget(self.live_log)
 
         splitter.addWidget(right_container)
-
-        # Кнопки управления
+ 
         btn_layout = QHBoxLayout()
         self.generate_btn = QPushButton("Сгенерировать проект")
         self.generate_btn.setFont(QFont("Arial", 11, QFont.Bold))
@@ -139,20 +157,17 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setFont(QFont("Courier New", 11))
         main_layout.addWidget(self.tabs)
-
-        # Прогресс-бар
+ 
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         self.progress.setFixedHeight(8)
         main_layout.addWidget(self.progress)
 
         self.apply_styles()
-
-        # Подключаем сигналы
+ 
         self.generate_btn.clicked.connect(self.on_generate)
         self.download_btn.clicked.connect(self.on_download)
-
-    # ==================== DRAG & DROP ====================
+ 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Срабатывает, когда файлы перетаскиваются в окно."""
         if event.mimeData().hasUrls():
@@ -168,8 +183,7 @@ class MainWindow(QMainWindow):
         urls = event.mimeData().urls()
         if not urls:
             return
-
-        # Проверяем, что файлы можно обработать
+ 
         for url in urls:
             file_path = url.toLocalFile()
             if not file_path:
@@ -177,7 +191,7 @@ class MainWindow(QMainWindow):
             if self._add_file(file_path):
                 event.acceptProposedAction()
             else:
-                # Если файл не добавился, показываем ошибку в статусе
+ 
                 self.status_label.setText(f"Ошибка: {Path(file_path).name} не добавлен")
                 event.ignore()
 
@@ -201,8 +215,7 @@ class MainWindow(QMainWindow):
         self._update_files_list()
         self.status_label.setText(f"Файл {file_name} прикреплён")
         return True
-
-    # ==================== ОБНОВЛЕНИЕ СПИСКА ФАЙЛОВ ====================
+ 
     def _update_files_list(self):
         self.files_list.clear()
         for i, file_path in enumerate(self.attached_files, 1):
@@ -214,8 +227,7 @@ class MainWindow(QMainWindow):
     def _clear_attached_files(self):
         self.attached_files.clear()
         self._update_files_list()
-
-    # ==================== КОНТЕКСТНОЕ МЕНЮ ДЛЯ УДАЛЕНИЯ ФАЙЛОВ ====================
+ 
     def _show_file_context_menu(self, pos):
         if not self.attached_files:
             return
@@ -231,21 +243,18 @@ class MainWindow(QMainWindow):
             del self.attached_files[current_row]
             self._update_files_list()
             self.status_label.setText("Файл удалён")
-
-    # ==================== ОБЫЧНЫЙ ДИАЛОГ ВЫБОРА ФАЙЛА (СВЕТЛЫЙ) ====================
+ 
     def on_attach_file(self):
         if len(self.attached_files) >= self.MAX_FILES:
             self.status_label.setText(f"Максимум {self.MAX_FILES} файлов!")
             return
-
-        # Создаём диалог с явной светлой палитрой, чтобы текст был виден
+ 
         dialog = QFileDialog(self)
         dialog.setWindowTitle("Выберите файлы")
         dialog.setDirectory(str(Path.home() / "Desktop"))
         dialog.setNameFilter("Поддерживаемые файлы (*.txt *.pdf *.docx);;PDF файлы (*.pdf);;Word документы (*.docx);;Текстовые файлы (*.txt);;Все файлы (*.*)")
         dialog.setFileMode(QFileDialog.ExistingFiles)
-
-        # Принудительно задаём палитру с белым фоном и чёрным текстом для диалога
+ 
         light_palette = QPalette()
         light_palette.setColor(QPalette.Window, Qt.white)
         light_palette.setColor(QPalette.WindowText, Qt.black)
@@ -254,14 +263,12 @@ class MainWindow(QMainWindow):
         light_palette.setColor(QPalette.Button, Qt.lightGray)
         light_palette.setColor(QPalette.ButtonText, Qt.black)
         dialog.setPalette(light_palette)
-
-        # Запускаем диалог
+ 
         if dialog.exec_() == QFileDialog.Accepted:
             file_paths = dialog.selectedFiles()
             for file_path in file_paths:
                 self._add_file(file_path)
-
-    # ==================== СТИЛИ ====================
+ 
     def apply_styles(self):
         style = """
             QMainWindow { 
@@ -375,38 +382,43 @@ class MainWindow(QMainWindow):
             }
         """
         self.setStyleSheet(style)
-
-    # ==================== ГЕНЕРАЦИЯ ====================
+ 
     def on_generate(self):
-        manual_text = self.input_text.toPlainText().strip()
+        try:
+            log_to_file("on_generate called")
+            manual_text = self.input_text.toPlainText().strip()
 
-        file_texts = []
-        for file_path in self.attached_files:
-            text = extract_text_from_file(file_path)
-            if text and not text.startswith("Ошибка"):
-                file_texts.append(text)
-            elif text and text.startswith("Ошибка"):
-                self.status_label.setText(text)
+            file_texts = []
+            for file_path in self.attached_files:
+                text = extract_text_from_file(file_path)
+                if text and not text.startswith("Ошибка"):
+                    file_texts.append(text)
+                elif text and text.startswith("Ошибка"):
+                    self.status_label.setText(text)
+                    return
+
+            tech_task = merge_texts(manual_text, *file_texts)
+
+            if not tech_task:
+                self.status_label.setText("Введите ТЗ или прикрепите файлы!")
                 return
 
-        tech_task = merge_texts(manual_text, *file_texts)
+            self.generate_btn.setEnabled(False)
+            self.download_btn.setEnabled(False)
+            self.status_label.setText("Генерация...")
+            self.progress.setVisible(True)
+            self.progress.setRange(0, 0)
+            self.tabs.clear()
+            self.live_log.clear()
 
-        if not tech_task:
-            self.status_label.setText("Введите ТЗ или прикрепите файлы!")
-            return
-
-        self.generate_btn.setEnabled(False)
-        self.download_btn.setEnabled(False)
-        self.status_label.setText("Генерация...")
-        self.progress.setVisible(True)
-        self.progress.setRange(0, 0)
-        self.tabs.clear()
-        self.live_log.clear()
-
-        self.worker = Worker(tech_task)
-        self.worker.finished.connect(self.on_finished)
-        self.worker.progress_update.connect(self.on_progress_update)
-        self.worker.start()
+            self.worker = Worker(tech_task)
+            self.worker.finished.connect(self.on_finished)
+            self.worker.progress_update.connect(self.on_progress_update)
+            log_to_file("Worker starting")
+            self.worker.start()
+        except Exception as e:
+            log_to_file("on_generate CRASH: " + traceback.format_exc())
+            raise
 
     def on_progress_update(self, msg: str):
         self.live_log.append(msg)
@@ -417,20 +429,20 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Готово")
         self.download_btn.setEnabled(True)
 
-        modules_dir = Path(__file__).parent / "modules"
+        base_dir = get_base_dir()
+        modules_dir = base_dir / "modules"
         for module_file in sorted(modules_dir.glob("*.py")):
             editor = QTextEdit()
             editor.setReadOnly(True)
             editor.setFont(QFont("Courier New", 12))
             editor.setText(module_file.read_text(encoding="utf-8"))
             self.tabs.addTab(editor, module_file.name)
-
-        # Показываем итоговый лог во вкладке (опционально)
+ 
         log_tab = QTextEdit()
         log_tab.setReadOnly(True)
         log_tab.setFont(QFont("Courier New", 12))
         log_tab.setText(log)
-        # self.tabs.addTab(log_tab, "Лог (итоговый)")  # раскомментируйте, если нужен
+ 
 
         self._clear_attached_files()
 
@@ -439,8 +451,9 @@ class MainWindow(QMainWindow):
         if not target_dir:
             return
 
-        modules_dir = Path(__file__).parent / "modules"
-        manifest_file = Path(__file__).parent / "manifest.json"
+        base_dir = get_base_dir()
+        modules_dir = base_dir / "modules"
+        manifest_file = base_dir / "manifest.json"
 
         dst = Path(target_dir) / "generated_project"
         dst.mkdir(exist_ok=True)

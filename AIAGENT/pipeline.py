@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import ast
 import re
+import sys
 from .prompt_builder import build_module_prompt
 from .module_analyzer import ModuleAnalyzer
 
@@ -18,13 +19,25 @@ STANDARD_LIBS = {
     "string", "pprint", "copy", "weakref", "warnings"
 }
 
+VARIABLE_LIKE_NAMES = {
+    "file_path", "file", "data", "result", "item", "value", "self", "cls",
+    "path", "filename", "text", "content", "line", "row", "column"
+}
+
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    else:
+        return Path(__file__).parent
+
 class Pipeline:
     def __init__(self, generator, validator, docker):
         self.generator = generator
         self.validator = validator
         self.docker = docker
         self.analyzer = ModuleAnalyzer()
-        self.modules_dir = Path(__file__).parent / "modules"
+        base_dir = get_base_dir()
+        self.modules_dir = base_dir / "modules"
         self.modules_dir.mkdir(exist_ok=True)
 
     def _extract_interfaces(self, code: str) -> dict:
@@ -63,13 +76,14 @@ class Pipeline:
             manifest=manifest,
             module=module,
             interfaces=json.dumps(interfaces, indent=4, ensure_ascii=False),
-            all_modules_code=""
+            all_modules_code=existing_code
         )
 
         code = self.generator.generate_code(prompt)
         log_msg(f"{name}: сгенерирован код")
 
-        for iteration in range(1, 10):
+        iteration_limit = 20
+        for iteration in range(1, iteration_limit):
             ok, err = self.validator.validate(code)
             if not ok:
                 log_msg(f"{name}: синтаксическая ошибка → перегенерация")
@@ -77,17 +91,25 @@ class Pipeline:
                     prompt + f"\nИсправь синтаксическую ошибку:\n{err}\nТвой предыдущий код:\n{code}"
                 )
                 continue
-            # Проверяем, не сгенерировал ли LLM классы, которые уже существуют в других модулях
+
             new_ifaces = self._extract_interfaces(code)
             duplicated = set(new_ifaces.keys()) & set(interfaces.keys())
             if duplicated:
-                dup_list = ", ".join(sorted(duplicated))
-                log_msg(f"{name}: обнаружены дубли классов {dup_list} — перегенерация без создания этих классов")
-                # Просим LLM перегенерировать модуль, не создавая дубликаты и используя существующие классы
-                code = self.generator.generate_code(
-                    prompt + f"\nНЕ создавай классы: {dup_list}. Используй существующие классы и импортируй их из соответствующих модулей."
-                )
-                continue
+                log_msg(f"{name}: предупреждение – дубли классов {', '.join(duplicated)} (удаляем)")
+                for cls in duplicated:
+                    pattern = rf'class {cls}\s*:.*?(?=\nclass |\Z)'
+                    code = re.sub(pattern, '', code, flags=re.DOTALL)
+                log_msg(f"{name}: дубли удалены")
+                ok2, err2 = self.validator.validate(code)
+                if ok2:
+                    log_msg(f"{name}: синтаксис ОК (после удаления дублей)")
+                    break
+                else:
+                    log_msg(f"{name}: синтаксическая ошибка после удаления дублей → перегенерация")
+                    code = self.generator.generate_code(
+                        prompt + f"\nИсправь синтаксическую ошибку:\n{err2}\nТвой предыдущий код:\n{code}"
+                    )
+                    continue
 
             log_msg(f"{name}: синтаксис ОК")
             break
@@ -110,7 +132,6 @@ class Pipeline:
 Ты — ИИ-агент, который пишет главный модуль Python-проекта.
 
 main.py — ЕДИНСТВЕННАЯ точка входа.
- 
 
 СТРОГИЕ ПРАВИЛА:
 - main.py НЕ должен содержать бизнес-логику.
@@ -119,8 +140,9 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
 - main.py должен импортировать все модули: {list(interfaces.keys())}
 - main.py должен создавать объекты классов и вызывать их методы.
 - main.py должен содержать функцию main().
-- main.py НЕ должен содержать определения классов (например, class BankAccount: ...).
+- main.py НЕ должен содержать определения классов.
 - main.py НЕ должен содержать определения функций, кроме main().
+- НЕ используй неопределённые переменные. Передавай все параметры явно.
 
 ИНТЕРФЕЙСЫ:
 {json.dumps(interfaces, indent=4, ensure_ascii=False)}
@@ -147,6 +169,23 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
 
         (self.modules_dir / "main.py").write_text(code, encoding="utf-8")
         all_codes["main.py"] = code
+
+    def _remove_empty_modules(self, log_msg):
+        """
+        Удаляет модули, в которых нет определений классов или функций.
+        """
+        removed = []
+        for py_file in self.modules_dir.glob("*.py"):
+            if py_file.name == "main.py":
+                continue
+            content = py_file.read_text(encoding="utf-8")
+            has_class = re.search(r'^\s*class\s+\w+', content, re.MULTILINE)
+            has_function = re.search(r'^\s*def\s+\w+', content, re.MULTILINE)
+            if not has_class and not has_function:
+                py_file.unlink()
+                removed.append(py_file.name)
+                log_msg(f"🗑️ Удалён пустой модуль (нет классов/функций): {py_file.name}")
+        return removed
 
     def _extract_error_modules(self, stderr: str) -> list:
         matches = re.findall(r'File ".*?([^/\\]+\.py)"', stderr)
@@ -206,26 +245,23 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
         return None
 
     def _add_missing_module(self, tech_task, manifest, module_name, log_msg):
-        # Если это стандартная библиотека или явно имя класса — не создаём модуль
-        try:
-            norm = self.analyzer._normalize_name(module_name)
-        except Exception:
-            # fallback normalization
-            norm = module_name.replace('.py', '').strip()
-            norm = re.sub(r'[^a-zA-Z0-9_]', '', norm)
-            norm = re.sub(r'([A-Z]+)', lambda m: '_' + m.group(1).lower(), norm).lstrip('_').lower()
+        if module_name.lower() in VARIABLE_LIKE_NAMES:
+            log_msg(f"{module_name} похоже на переменную, не создаём модуль")
+            return False
+
+        norm = module_name.replace('.py', '').strip()
+        norm = re.sub(r'[^a-zA-Z0-9_]', '', norm)
+        norm = re.sub(r'([A-Z]+)', lambda m: '_' + m.group(1).lower(), norm).lstrip('_').lower()
 
         if norm in STANDARD_LIBS:
             log_msg(f"{module_name} — стандартная библиотека, не создаём модуль")
             return False
 
-        # Если имя похоже на имя класса (PascalCase), не создаём модуль
         if module_name and module_name[0].isupper():
             log_msg(f"{module_name} похоже на имя класса, не создаём модуль")
             return False
 
-        # Проверяем по нормализованным именам чтобы не добавлять дубликаты
-        if not any(self.analyzer._normalize_name(m["name"]) == norm for m in manifest["modules"]):
+        if not any(m["name"] == norm for m in manifest["modules"]):
             log_msg(f"Добавляем недостающий модуль: {norm}")
             manifest["modules"].append({
                 "name": norm,
@@ -233,7 +269,7 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
                 "depends_on": []
             })
             return True
-        log_msg(f"Модуль {module_name} уже присутствует (нормализовано как {norm}), пропускаем")
+        log_msg(f"Модуль {module_name} уже присутствует, пропускаем")
         return False
 
     def _regenerate_module(self, tech_task, manifest, module, interfaces, all_codes, log_msg, error_msg, extra_info=""):
@@ -251,8 +287,8 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
             manifest=manifest,
             module=module,
             interfaces=json.dumps(interfaces, indent=4, ensure_ascii=False),
-            all_modules_code=""
-        ) + f"\n\nОШИБКА ПРИ ЗАПУСКЕ ПРОЕКТА:\n{error_msg}\n{extra_info}\n\nИсправь код модуля {name} с учётом этой ошибки. Проверь импорты. Используй абсолютные импорты (from module_name import ClassName), НЕ используй относительные импорты (from .module import ClassName)."
+            all_modules_code=existing_code
+        ) + f"\n\nОШИБКА ПРИ ЗАПУСКЕ ПРОЕКТА:\n{error_msg}\n{extra_info}\n\nИсправь код модуля {name} с учётом этой ошибки. Проверь импорты. Используй абсолютные импорты."
 
         code = self.generator.generate_code(prompt)
         log_msg(f"{name}: перегенерирован код")
@@ -289,6 +325,7 @@ main.py МОЖЕТ использовать print().
 - main.py должен импортировать все модули: {list(interfaces.keys())}
 - main.py должен создавать объекты классов и вызывать их методы.
 - main.py должен содержать функцию main().
+- НЕ используй неопределённые переменные. Передавай все параметры явно.
 
 Код уже сгенерированных модулей:
 {existing_code}
@@ -303,7 +340,7 @@ main.py МОЖЕТ использовать print().
 {error_msg}
 {extra_info}
 
-Исправь main.py с учётом этой ошибки. Проверь импорты. Используй абсолютные импорты (from module_name import ClassName), НЕ используй относительные импорты (from .module import ClassName).
+Исправь main.py с учётом этой ошибки. Проверь импорты. Используй абсолютные импорты.
 """
 
         code = self.generator.generate_code(prompt)
@@ -355,7 +392,6 @@ main.py МОЖЕТ использовать print().
 
             log_msg(f"Ошибка выполнения проекта:\n{stderr}")
 
-            # 1. Циклические импорты
             if "partially initialized module" in stderr:
                 module_names = self._extract_error_modules(stderr)
                 for mod in module_names:
@@ -367,14 +403,12 @@ main.py МОЖЕТ использовать print().
                                                     "\nИЗБЕГАЙ циклических импортов. Используй абсолютные импорты.")
                 continue
 
-            # 2. Недостающие модули
             missing_modules = re.findall(r"No module named '(\w+)'", stderr)
             for mod in missing_modules:
                 if self._add_missing_module(tech_task, manifest, mod, log_msg):
                     module = {"name": mod, "description": f"модуль для {mod}", "depends_on": []}
                     self._generate_module(tech_task, manifest, module, interfaces, all_codes, log_msg)
 
-            # 3. Ошибка импорта класса (ImportError)
             import_names = self._extract_import_names(stderr)
             from_module = self._extract_module_from_import_error(stderr)
             if import_names and from_module:
@@ -390,7 +424,6 @@ main.py МОЖЕТ использовать print().
                         module = {"name": name.lower(), "description": f"класс {name}", "depends_on": []}
                         self._generate_module(tech_task, manifest, module, interfaces, all_codes, log_msg)
 
-            # 4. Недостающие классы (NameError)
             missing_classes = self._extract_missing_names(stderr)
             for cls in missing_classes:
                 if cls in STANDARD_LIBS:
@@ -406,6 +439,19 @@ main.py МОЖЕТ использовать print().
                                                        f"{stderr}\n\nДобавь 'import {cls}' в начало файла.")
                     continue
 
+                if cls in VARIABLE_LIKE_NAMES:
+                    log_msg(f"{cls} похоже на переменную, не создаём модуль")
+                    for mod_name in self._extract_error_modules(stderr):
+                        if mod_name == "main":
+                            self._regenerate_main(tech_task, manifest, interfaces, all_codes, log_msg,
+                                                 f"{stderr}\n\nНе используй неопределённую переменную '{cls}'. Передавай все параметры явно.")
+                        else:
+                            module = next((m for m in manifest["modules"] if m["name"] == mod_name), None)
+                            if module:
+                                self._regenerate_module(tech_task, manifest, module, interfaces, all_codes, log_msg,
+                                                       f"{stderr}\n\nНе используй неопределённую переменную '{cls}'. Передавай все параметры явно.")
+                    continue
+
                 existing_module = self._find_module_for_import(all_codes, cls)
                 if existing_module:
                     log_msg(f"Класс {cls} найден в {existing_module}, добавляем импорт")
@@ -416,12 +462,14 @@ main.py МОЖЕТ использовать print().
                             self._regenerate_module(tech_task, manifest, mod, interfaces, all_codes, log_msg, stderr,
                                                    f"\nДобавь импорт 'from {existing_module} import {cls}' в {mod['name']}.")
                 else:
-                    log_msg(f"Класс {cls} не найден, создаём модуль {cls.lower()}")
-                    self._add_missing_module(tech_task, manifest, cls.lower(), log_msg)
-                    module = {"name": cls.lower(), "description": f"класс {cls}", "depends_on": []}
-                    self._generate_module(tech_task, manifest, module, interfaces, all_codes, log_msg)
+                    if len(cls) > 2 and not cls.islower():
+                        log_msg(f"Класс {cls} не найден, создаём модуль {cls.lower()}")
+                        self._add_missing_module(tech_task, manifest, cls.lower(), log_msg)
+                        module = {"name": cls.lower(), "description": f"класс {cls}", "depends_on": []}
+                        self._generate_module(tech_task, manifest, module, interfaces, all_codes, log_msg)
+                    else:
+                        log_msg(f"Игнорируем неопределённое имя '{cls}' – скорее всего, переменная")
 
-            # 5. Проблемные модули из трассировки
             module_names = self._extract_error_modules(stderr)
             for name in module_names:
                 if name == "main":
@@ -431,11 +479,9 @@ main.py МОЖЕТ использовать print().
                     if module:
                         self._regenerate_module(tech_task, manifest, module, interfaces, all_codes, log_msg, stderr)
 
-            # Исправляем импорты во всех файлах
             for mod_name in all_codes.keys():
                 self._fix_imports_in_file(mod_name, all_codes, interfaces, log_msg)
 
-            # Обновляем интерфейсы
             for mod_name, code in all_codes.items():
                 interfaces.update(self._extract_interfaces(code))
 
@@ -466,9 +512,17 @@ main.py МОЖЕТ использовать print().
 
         self._generate_main(tech_task, manifest, interfaces, all_codes, log_msg)
 
+        removed = self._remove_empty_modules(log_msg)
+        if removed:
+            manifest["modules"] = [
+                m for m in manifest["modules"]
+                if m["name"] != "main" and f"{m['name']}.py" not in removed
+            ] + [m for m in manifest["modules"] if m["name"] == "main"]
+
         success, output = self._run_project_and_fix(tech_task, manifest, interfaces, all_codes, log_msg)
 
-        (Path(__file__).parent / "manifest.json").write_text(
+        base_dir = get_base_dir()
+        (base_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=4, ensure_ascii=False),
             encoding="utf-8"
         )

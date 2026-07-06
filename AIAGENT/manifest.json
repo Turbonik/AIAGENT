@@ -17,13 +17,6 @@
         {
             "name": "geometry",
             "description": "класс Geometry",
-            "depends_on": [
-                "vector"
-            ]
-        },
-        {
-            "name": "utils",
-            "description": "модуль для utils",
             "depends_on": []
         }
     ]

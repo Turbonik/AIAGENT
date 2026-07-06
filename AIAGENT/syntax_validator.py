@@ -1,7 +1,7 @@
 import ast
 
 def validate_syntax(code: str):
-    """Validates Python syntax using compile."""
+    """Проверяет синтаксис Python кода с использованием compile."""
     if not code or not code.strip():
         return False, "Empty code"
     try:

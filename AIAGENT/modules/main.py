@@ -1,12 +1,21 @@
 # main.py
-from vector import Vector
 from geometry import Geometry
-from utils import VectorParser
+from vector import Vector
 
 def main():
-    # Example usage of VectorParser
-    parsed_vector = VectorParser.parse("1 2 3")
-    print(parsed_vector)
+    # Создаем объекты классов
+    point1 = Vector(1, 2, 3)
+    point2 = Vector(4, 5, 6)
+
+    # Вызываем методы классов
+    distance = Geometry.distance(point1, point2)
+    area = Geometry.triangle_area(point1, point2, Vector(0, 0, 0))
+    angle = Geometry.angle(point1, point2, Vector(0, 0, 0))
+
+    # Выводим результаты
+    print(f"Distance: {distance}")
+    print(f"Area: {area}")
+    print(f"Angle: {angle}")
 
 if __name__ == "__main__":
     main()

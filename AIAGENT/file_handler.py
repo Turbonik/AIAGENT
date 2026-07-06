@@ -3,7 +3,12 @@
 import re
 from pathlib import Path
 from typing import Optional
-
+import sys
+ 
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    return get_base_dir()
 
 def extract_text_from_txt(file_path: str) -> Optional[str]:
     """Извлекает текст из TXT файла."""
