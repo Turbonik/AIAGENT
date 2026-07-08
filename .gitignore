@@ -9,6 +9,8 @@ __pycache__/
 *.log
 *.tmp
 
+modules/
+ 
 # --- Virtual environments ---
 venv/
 venv_win/

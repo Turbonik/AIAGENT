@@ -1,21 +1,15 @@
-# main.py
 from geometry import Geometry
 from vector import Vector
+from utils import VectorParser
 
 def main():
-    # Создаем объекты классов
+    # Create objects of the classes
     point1 = Vector(1, 2, 3)
     point2 = Vector(4, 5, 6)
 
-    # Вызываем методы классов
+    # Calculate distance between two points using Geometry class
     distance = Geometry.distance(point1, point2)
-    area = Geometry.triangle_area(point1, point2, Vector(0, 0, 0))
-    angle = Geometry.angle(point1, point2, Vector(0, 0, 0))
-
-    # Выводим результаты
-    print(f"Distance: {distance}")
-    print(f"Area: {area}")
-    print(f"Angle: {angle}")
+    print(f"Distance between {point1} and {point2}: {distance}")
 
 if __name__ == "__main__":
     main()

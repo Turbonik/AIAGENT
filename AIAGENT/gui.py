@@ -44,18 +44,16 @@ class Worker(QThread):
         self.tech_task = tech_task
 
     def run(self):
+        import traceback
         try:
-            log_to_file("Worker started")
             agent = CodeAgent()
             def callback(msg: str):
                 self.progress_update.emit(msg)
-                log_to_file(f"CB: {msg}")
             result = agent.run(self.tech_task, callback)
-            log_to_file("Worker finished successfully")
             self.finished.emit(result, result["log"])
         except Exception as e:
-            log_to_file("Worker CRASH: " + traceback.format_exc())
-            self.finished.emit({"success": False}, f"Ошибка:\n{traceback.format_exc()}")
+            error_msg = traceback.format_exc()
+            self.finished.emit({"success": False}, f"Ошибка:\n{error_msg}")
 
 
 class MainWindow(QMainWindow):
