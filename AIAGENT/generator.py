@@ -3,6 +3,7 @@ import requests
 from . import config
 
 def clean_code(raw: str) -> str:
+    """Очистка сырого текста от Markdown-разметки и лишних служебных символов."""
     if not raw:
         return ""
     if raw.startswith('\ufeff'):
@@ -34,6 +35,7 @@ def clean_code(raw: str) -> str:
     return '\n'.join(cleaned).strip()
 
 def generate_code(prompt: str):
+    """Генерация кода посредством обращения к API модели Ollama."""
     payload = {
         "model": config.MODEL_NAME,
         "prompt": prompt,
@@ -58,4 +60,5 @@ def generate_code(prompt: str):
 
 class CodeGenerator:
     def generate_code(self, prompt: str):
+        """Вызов процесса генерации кода на основе заданного промпта."""
         return generate_code(prompt)

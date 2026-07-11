@@ -10,22 +10,14 @@ class DockerRunner:
     """Запускает Python код в контейнере Docker с поддержкой автоматического создания data файлов."""
     
     def __init__(self, image="python:3.10-slim", timeout=30, memory="256m"):
-        """Инициализирует Docker runner с параметрами контейнера."""
         self.image = image
         self.timeout = timeout
         self.memory = memory
         self.data_extensions = {'.csv', '.txt', '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg'}
     
     def _extract_file_references(self, code: str) -> set:
-        """Извлекает все ссылки на файлы данных из кода.
-        
-        Ищет строки вида: "filename.csv", 'data.txt', открытие файлов и т.д.
-        
-        Args:
-            code: Python код для анализа
-            
-        Returns:
-            Множество имён файлов, найденных в коде
+        """
+        Извлекает все ссылки на файлы данных из кода.
         """
         files = set()
         
@@ -46,10 +38,8 @@ class DockerRunner:
         return files
     
     def _create_stub_file(self, filepath: Path) -> None:
-        """Создаёт stub-файл данных в зависимости от расширения.
-        
-        Args:
-            filepath: Путь к файлу для создания
+        """
+        Создаёт stub-файл данных в зависимости от расширения.
         """
         ext = filepath.suffix.lower()
         
@@ -65,49 +55,43 @@ class DockerRunner:
                     f.write('{"data": [], "status": "ok"}')
             
             elif ext in {'.yaml', '.yml'}:
-                # YAML структура
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write('data: []\nstatus: ok\n')
             
             elif ext == '.xml':
-                # XML структура
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write('<?xml version="1.0" encoding="utf-8"?>\n<root><data/></root>')
             
             elif ext in {'.toml', '.ini', '.cfg'}:
-                # INI-подобная структура
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write('[DEFAULT]\nstatus=ok\ndata=\n')
             
             else:
-                # Для остальных расширений - просто создаём пустой файл
                 filepath.touch()
         
         except Exception as e:
-            # Если ошибка при создании - просто создаём пустой файл
             filepath.touch()
     
     def _create_data_files(self, tmpdir: Path, code: str) -> None:
         """
-        Создаёт все необходимые stub-файлы данных для кода.        """""
+        Создаёт все необходимые stub-файлы данных для кода.       
+        """
         file_references = self._extract_file_references(code)
         
         for filename in file_references:
             filepath = tmpdir / filename
-            # Не перезаписываем уже существующие файлы
+
             if not filepath.exists():
                 self._create_stub_file(filepath)
 
     def run_code(self, code: str):
         """
         Запуск одиночного модуля в Docker.
-        Используется для проверки обычных модулей (не main.py).
         """
         tmpdir = Path(tempfile.mkdtemp())
         code_file = tmpdir / "code.py"
         code_file.write_text(code, encoding="utf-8")
-        
-        # Создаём stub-файлы данных, которые используются в коде
+
         self._create_data_files(tmpdir, code)
 
         cmd = [
@@ -139,8 +123,7 @@ class DockerRunner:
         """
         tmpdir = Path(tempfile.mkdtemp())
         shutil.copytree(modules_dir, tmpdir, dirs_exist_ok=True)
-        
-        # Сканируем все Python файлы и создаём необходимые data files
+
         for py_file in tmpdir.glob("**/*.py"):
             try:
                 code = py_file.read_text(encoding="utf-8")

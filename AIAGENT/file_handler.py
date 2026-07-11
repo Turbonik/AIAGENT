@@ -1,5 +1,3 @@
-"""Обработчики PDF, DOCX и TXT файлов для извлечения текста."""
-
 import re
 from pathlib import Path
 from typing import Optional

@@ -27,6 +27,7 @@ VARIABLE_LIKE_NAMES = {
 
 
 def get_base_dir():
+    """Определение базовой директории исполняемого приложения или скрипта."""
     if getattr(sys, 'frozen', False):
         return Path(sys.executable).parent
     else:
@@ -34,7 +35,14 @@ def get_base_dir():
 
 
 class Pipeline:
+    """
+    Оркестратор генерации, валидации и выполнения Python-модулей на основе технического задания.
+    """
+
     def __init__(self, generator, validator, docker):
+        """
+        Инициализация конвейера с компонентами генерации, валидации и выполнения в Docker.
+        """
         self.generator = generator
         self.validator = validator
         self.docker = docker
@@ -44,6 +52,9 @@ class Pipeline:
         self.modules_dir.mkdir(exist_ok=True)
 
     def _extract_interfaces(self, code: str, module_name: str):
+        """
+        Извлечение интерфейсов (классов и их методов) из кода модуля.
+        """
         interfaces = {}
         try:
             tree = ast.parse(code)
@@ -68,9 +79,13 @@ class Pipeline:
         return interfaces
 
     def _get_module_dependencies(self, module: dict) -> list:
+        """Список зависимостей модуля из его описания."""
         return module.get("depends_on", [])
 
     def _generate_module(self, tech_task, manifest, module, interfaces, all_codes, log_msg):
+        """
+        Генерация кода отдельного модуля с циклической проверкой и устранением дублей.
+        """
         name = module["name"]
         log_msg(f"Генерация модуля: {name}")
 
@@ -131,11 +146,14 @@ class Pipeline:
             log_msg(f"{name}: модуль сохранён")
 
         except Exception as e:
-            log_msg(f"❌ Ошибка при генерации модуля {name}: {e}")
+            log_msg(f"Ошибка при генерации модуля {name}: {e}")
             traceback.print_exc()
             raise
 
     def _generate_main(self, tech_task, manifest, interfaces, all_codes, log_msg):
+        """
+        Генерация главного модуля main.py как точки входа.
+        """
         name = "main"
         log_msg("Генерация главного модуля: main")
 
@@ -190,11 +208,14 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
             log_msg("main: модуль сохранён")
 
         except Exception as e:
-            log_msg(f"❌ Ошибка при генерации main: {e}")
+            log_msg(f"Ошибка при генерации main: {e}")
             traceback.print_exc()
             raise
 
     def _remove_empty_modules(self, log_msg):
+        """
+        Удаление файлов модулей, не содержащих классов или функций.
+        """
         removed = []
         for py_file in self.modules_dir.glob("*.py"):
             if py_file.name == "main.py":
@@ -209,24 +230,29 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
         return removed
 
     def _extract_error_modules(self, stderr: str) -> list:
+        """Извлечение имён файлов модулей из текста ошибки выполнения."""
         matches = re.findall(r'File ".*?([^/\\]+\.py)"', stderr)
         return [m.rsplit('.', 1)[0] for m in matches]
 
     def _extract_missing_names(self, stderr: str) -> list:
+        """Извлечение неопределённых имён (NameError) из текста ошибки."""
         matches = re.findall(r"name '(\w+)' is not defined", stderr)
         return matches
 
     def _extract_import_names(self, stderr: str) -> list:
+        """Извлечение имён, которые не удаётся импортировать, из текста ошибки."""
         matches = re.findall(r"cannot import name '(\w+)'", stderr)
         return matches
 
     def _extract_module_from_import_error(self, stderr: str) -> str:
+        """Извлечение имени модуля из сообщения об ошибке импорта."""
         match = re.search(r"from '(\w+)'", stderr)
         if match:
             return match.group(1)
         return None
 
     def _get_imports(self, code: str) -> list:
+        """Список строк импорта из кода."""
         imports = []
         for line in code.splitlines():
             line = line.strip()
@@ -235,6 +261,7 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
         return imports
 
     def _get_defined_classes(self, code: str) -> list:
+        """Список имён классов, определённых в коде."""
         classes = []
         try:
             tree = ast.parse(code)
@@ -246,6 +273,7 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
         return classes
 
     def _get_defined_functions(self, code: str) -> list:
+        """Список имён функций, определённых в коде."""
         funcs = []
         try:
             tree = ast.parse(code)
@@ -257,15 +285,20 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
         return funcs
 
     def _module_contains(self, code: str, name: str) -> bool:
+        """Проверка, содержит ли код класс или функцию с заданным именем."""
         return name in self._get_defined_classes(code) or name in self._get_defined_functions(code)
 
     def _find_module_for_import(self, all_codes, import_name):
+        """Поиск модуля, в котором определён класс или функция с указанным именем."""
         for filename, code in all_codes.items():
             if self._module_contains(code, import_name):
                 return filename.replace(".py", "")
         return None
 
     def _add_missing_module(self, tech_task, manifest, module_name, log_msg):
+        """
+        Добавление недостающего модуля в манифест, если он не является стандартной библиотекой или переменной.
+        """
         if module_name.lower() in VARIABLE_LIKE_NAMES:
             log_msg(f"{module_name} похоже на переменную, не создаём модуль")
             return False
@@ -294,6 +327,9 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
         return False
 
     def _regenerate_module(self, tech_task, manifest, module, interfaces, all_codes, log_msg, error_msg, extra_info=""):
+        """
+        Перегенерация модуля с учётом ошибок выполнения, с добавлением информации об ошибке в промпт.
+        """
         name = module["name"]
         log_msg(f"Перегенерация модуля {name} с учётом ошибок")
 
@@ -326,11 +362,14 @@ main.py — ЕДИНСТВЕННАЯ точка входа.
             log_msg(f"{name}: обновлён")
 
         except Exception as e:
-            log_msg(f"❌ Ошибка при перегенерации {name}: {e}")
+            log_msg(f"Ошибка при перегенерации {name}: {e}")
             traceback.print_exc()
             raise
 
     def _regenerate_main(self, tech_task, manifest, interfaces, all_codes, log_msg, error_msg, extra_info=""):
+        """
+        Перегенерация main.py с учётом ошибок выполнения.
+        """
         log_msg("Перегенерация main с учётом ошибок")
 
         try:
@@ -384,11 +423,14 @@ main.py МОЖЕТ использовать print().
             log_msg("main: обновлён")
 
         except Exception as e:
-            log_msg(f"❌ Ошибка при перегенерации main: {e}")
+            log_msg(f"Ошибка при перегенерации main: {e}")
             traceback.print_exc()
             raise
 
     def _fix_imports_in_file(self, filename: str, all_codes: dict, interfaces: dict, log_msg):
+        """
+        Исправление импортов в файле: замена неверного модуля-источника на тот, где определён импортируемый объект.
+        """
         if filename not in all_codes:
             return
         code = all_codes[filename]
@@ -415,6 +457,9 @@ main.py МОЖЕТ использовать print().
             log_msg(f"Исправлены импорты в {filename}")
 
     def _run_project_and_fix(self, tech_task, manifest, interfaces, all_codes, log_msg, max_attempts=3):
+        """
+        Запуск проекта в Docker и итеративное исправление ошибок путём перегенерации модулей.
+        """
         for attempt in range(1, max_attempts + 1):
             log_msg(f"Запуск проекта (попытка {attempt})")
             stdout, stderr = self.docker.run_project(self.modules_dir)
@@ -532,6 +577,9 @@ main.py МОЖЕТ использовать print().
         return False, stderr
 
     def run(self, tech_task: str, callback=None):
+        """
+        Запуск полного конвейера: анализ, генерация модулей, выполнение и итеративное исправление.
+        """
         log = []
         interfaces = {}
         all_codes = {}

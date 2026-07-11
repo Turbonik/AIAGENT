@@ -1,8 +1,9 @@
-# prompt_builder.py
+python
 
 import json
 
 def build_module_prompt(tech_task, manifest, module, interfaces, all_modules_code):
+    """Формирование промпта для генерации кода модуля на основе его роли и архитектуры проекта."""
     name = module["name"]
     is_main = name == "main"
 
